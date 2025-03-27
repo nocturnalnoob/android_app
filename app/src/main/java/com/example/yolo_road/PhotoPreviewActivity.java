@@ -229,9 +229,24 @@ public class PhotoPreviewActivity extends AppCompatActivity {
     }
 
     private void showError(String message) {
-        runOnUiThread(() -> {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-        });
+        try {
+            Log.e(TAG, "Error occurred: " + message); // Log the error message
+
+            runOnUiThread(() -> {
+                try {
+                    if (!isFinishing()) {
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+                        Log.d(TAG, "Toast shown to user: " + message); // Log that Toast was shown
+                    } else {
+                        Log.w(TAG, "Activity finishing, Toast not shown: " + message); // Log if Toast couldn't be shown
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to show Toast: " + message, e); // Log any Toast showing errors
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Critical error in showError method", e); // Log any other errors
+        }
     }
 
     @Override

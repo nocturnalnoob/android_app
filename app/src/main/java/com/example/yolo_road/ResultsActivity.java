@@ -1,8 +1,9 @@
 package com.example.yolo_road;
-
 import android.annotation.SuppressLint;
 import android.content.Intent;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
@@ -10,12 +11,21 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+import com.airbnb.lottie.LottieDrawable;
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.airbnb.lottie.LottieAnimationView;
+import com.bumptech.glide.load.DataSource;
+import com.bumptech.glide.load.engine.GlideException;
+import com.bumptech.glide.load.model.GlideUrl;
+import com.bumptech.glide.request.RequestListener;
+import com.bumptech.glide.request.target.Target;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.bumptech.glide.Glide;
 import org.json.JSONArray;
@@ -24,17 +34,30 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.bumptech.glide.load.model.LazyHeaders;
+
+import okhttp3.OkHttpClient;
 
 public class ResultsActivity extends AppCompatActivity implements DetectionAdapter.OnDetectionClickListener {
     private static final String TAG = "ResultsActivity";
+    private static final String KEY_CURRENT_IMAGE = "current_image";
+    private static final String KEY_DETECTIONS = "detections";
+    private static final int PAGE_SIZE = 20;
+    private ExtendedFloatingActionButton fabnewScan;
     private ImageView resultImageView;
     private RecyclerView detectionsRecyclerView;
     private LottieAnimationView loadingAnimation;
     private LottieAnimationView emptyStateAnimation;
     private View emptyStateView;
+    private SwipeRefreshLayout swipeRefreshLayout;
     private DetectionAdapter adapter;
     private ApiService apiService;
-    private Map<String, String> resultImageMap = new HashMap<>();
+    private final Map<String, String> resultImageMap = new HashMap<>();
+    private String currentImageUrl;
+    private int currentPage = 0;
+    private boolean isLoading = false;
+    private boolean isLastPage = false;
+    private final OkHttpClient client = new OkHttpClient();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -43,29 +66,26 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
             setContentView(R.layout.activity_results);
             Log.d(TAG, "onCreate started");
 
-            // Initialize ApiService
             apiService = new ApiService();
-
-            // Setup toolbar
             setupToolbar();
-
-            // Initialize views
             initializeViews();
 
-            // Check if we're coming from camera or viewing all results
-            boolean viewAllResults = getIntent().getBooleanExtra("VIEW_ALL_RESULTS", false);
-            Log.d(TAG, "viewAllResults: " + viewAllResults);
-
-            if (viewAllResults) {
-                loadAllResults();
+            if (savedInstanceState != null) {
+                restoreState(savedInstanceState);
             } else {
-                // Handle single result from camera
-                String detectionResults = getIntent().getStringExtra("DETECTION_RESULTS");
-                if (detectionResults != null) {
-                    processSingleResult(detectionResults);
+                boolean viewAllResults = getIntent().getBooleanExtra("VIEW_ALL_RESULTS", false);
+                Log.d(TAG, "viewAllResults: " + viewAllResults);
+
+                if (viewAllResults) {
+                    loadAllResults();
                 } else {
-                    showError("No detection results available");
-                    showEmptyState("No detection results found", true);
+                    String detectionResults = getIntent().getStringExtra("DETECTION_RESULTS");
+                    if (detectionResults != null) {
+                        processSingleResult(detectionResults);
+                    } else {
+                        showError("No detection results available");
+                        showEmptyState("No detection results found", true);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -86,29 +106,53 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
             Log.e(TAG, "Error setting up toolbar: " + e.getMessage(), e);
         }
     }
-
     private void initializeViews() {
         try {
             Log.d(TAG, "Initializing views");
+
+            // Initialize all view references
             resultImageView = findViewById(R.id.resultImageView);
             detectionsRecyclerView = findViewById(R.id.detectionsRecyclerView);
             loadingAnimation = findViewById(R.id.loadingAnimation);
             emptyStateAnimation = findViewById(R.id.emptyStateAnimation);
             emptyStateView = findViewById(R.id.emptyStateView);
-            FloatingActionButton fabNewScan = findViewById(R.id.fabNewScan);
+            swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
+            ExtendedFloatingActionButton fabNewScan = findViewById(R.id.fabNewScan); // Added this line
 
-            // Setup RecyclerView
-            detectionsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+            // Set up RecyclerView
+            LinearLayoutManager layoutManager = new LinearLayoutManager(this);
+            detectionsRecyclerView.setLayoutManager(layoutManager);
             adapter = new DetectionAdapter();
             adapter.setOnDetectionClickListener(this);
             detectionsRecyclerView.setAdapter(adapter);
+            setupRecyclerViewPagination(layoutManager);
 
-            // Setup FAB click listener
-            fabNewScan.setOnClickListener(v -> startNewScan());
+            // Configure SwipeRefreshLayout
+            swipeRefreshLayout.setOnRefreshListener(() -> {
+                currentPage = 0;
+                isLastPage = false;
+                loadAllResults();
+            });
+            swipeRefreshLayout.setColorSchemeResources(R.color.purple_500); // Optional: Add refresh colors
 
-            // Initially hide loading and empty state
+            // Set up FAB
+            if (fabNewScan != null) {
+                fabNewScan.setOnClickListener(v -> startNewScan());
+            } else {
+                Log.e(TAG, "FAB not found in layout");
+            }
+
+            // Set initial visibility states
             loadingAnimation.setVisibility(View.GONE);
             emptyStateView.setVisibility(View.GONE);
+
+            // Configure Lottie animations if needed
+            if (loadingAnimation != null) {
+                loadingAnimation.setRepeatCount(LottieDrawable.INFINITE);
+            }
+            if (emptyStateAnimation != null) {
+                emptyStateAnimation.setRepeatCount(LottieDrawable.INFINITE);
+            }
 
             Log.d(TAG, "Views initialized successfully");
         } catch (Exception e) {
@@ -117,73 +161,48 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
         }
     }
 
+    private void setupRecyclerViewPagination(LinearLayoutManager layoutManager) {
+        detectionsRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                int visibleItemCount = layoutManager.getChildCount();
+                int totalItemCount = layoutManager.getItemCount();
+                int firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition();
+
+                if (!isLoading && !isLastPage) {
+                    if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount
+                            && firstVisibleItemPosition >= 0
+                            && totalItemCount >= PAGE_SIZE) {
+                        loadMoreResults();
+                    }
+                }
+            }
+        });
+    }
+
     private void loadAllResults() {
         try {
-            Log.d(TAG, "Loading all results");
+            Log.d(TAG, "Loading initial results");
+            currentPage = 0;
+            isLastPage = false;
             showLoading(true);
 
             apiService.getAllResults(new ApiService.ApiCallback() {
                 @Override
                 public void onSuccess(JSONObject response) {
-                    Log.d(TAG, "Got response: " + response.toString());
                     runOnUiThread(() -> {
                         try {
-                            // Process the results array
                             JSONArray results = response.getJSONArray("results");
-                            if (results.length() > 0) {
-                                // Process all results
-                                List<Detection> allDetections = new ArrayList<>();
-
-                                // Get the most recent result's image for display
-                                JSONObject latestResult = results.getJSONObject(0);
-                                String resultImageUrl = latestResult.getString("result_image_url");
-
-                                // Load the image from the most recent result
-                                loadDetectionImage(resultImageUrl);
-
-                                // Collect all detections from all results
-                                for (int i = 0; i < results.length(); i++) {
-                                    JSONObject resultObj = results.getJSONObject(i);
-                                    if (resultObj.has("detections")) {
-                                        JSONArray detections = resultObj.getJSONArray("detections");
-                                        String timestamp = resultObj.optString("timestamp", "Unknown time");
-
-                                        // Store image URL for this timestamp
-                                        String imageUrl = resultObj.optString("result_image_url", "");
-                                        if (!imageUrl.isEmpty()) {
-                                            resultImageMap.put(timestamp, imageUrl);
-                                        }
-
-                                        for (int j = 0; j < detections.length(); j++) {
-                                            JSONObject detection = detections.getJSONObject(j);
-                                            String className = detection.optString("class_name", "Unknown");
-                                            double confidence = detection.optDouble("confidence", 0.0);
-
-                                            allDetections.add(new Detection(className, confidence, timestamp));
-                                        }
-                                    }
-                                }
-
-                                // Update the adapter with all detections
-                                adapter.setDetections(allDetections);
-
-                                // Check if we got any detections
-                                if (allDetections.isEmpty()) {
-                                    showEmptyState("No objects detected", false);
-                                } else {
-                                    showEmptyState("", false);
-                                }
-
-                                showLoading(false);
-                            } else {
-                                showLoading(false);
-                                showEmptyState("No detection results found", true);
-                            }
+                            processResults(results, true);
                         } catch (Exception e) {
-                            Log.e(TAG, "Error processing results: " + e.getMessage(), e);
-                            showLoading(false);
+                            Log.e(TAG, "Error processing results: " + e.getMessage());
                             showError("Error processing results: " + e.getMessage());
                             showEmptyState("Error processing results", true);
+                        } finally {
+                            showLoading(false);
+                            if (swipeRefreshLayout.isRefreshing()) {
+                                swipeRefreshLayout.setRefreshing(false);
+                            }
                         }
                     });
                 }
@@ -193,41 +212,138 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
                     Log.e(TAG, "API call failed: " + error);
                     runOnUiThread(() -> {
                         showLoading(false);
+                        if (swipeRefreshLayout.isRefreshing()) {
+                            swipeRefreshLayout.setRefreshing(false);
+                        }
                         showError("Failed to load results: " + error);
                         showEmptyState("Failed to load results", true);
                     });
                 }
             });
         } catch (Exception e) {
-            Log.e(TAG, "Error in loadAllResults: " + e.getMessage(), e);
+            Log.e(TAG, "Error in loadAllResults: " + e.getMessage());
             showLoading(false);
+            if (swipeRefreshLayout.isRefreshing()) {
+                swipeRefreshLayout.setRefreshing(false);
+            }
             showError("Error loading results: " + e.getMessage());
-            showEmptyState("Error loading results", true);
+        }
+    }
+
+    private void loadMoreResults() {
+        if (isLoading || isLastPage) return;
+
+        isLoading = true;
+        adapter.showLoading(); // Show loading footer
+        Log.d(TAG, "Loading more results, page: " + currentPage);
+
+        apiService.getResultsPage(currentPage, PAGE_SIZE, new ApiService.ApiCallback() {
+            @Override
+            public void onSuccess(JSONObject response) {
+                runOnUiThread(() -> {
+                    try {
+                        adapter.hideLoading(); // Hide loading footer
+                        JSONArray results = response.getJSONArray("results");
+                        processResults(results, false);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error processing more results: " + e.getMessage());
+                        showError("Error loading more results: " + e.getMessage());
+                    } finally {
+                        isLoading = false;
+                    }
+                });
+            }
+
+            @Override
+            public void onFailure(String error) {
+                Log.e(TAG, "Failed to load more results: " + error);
+                runOnUiThread(() -> {
+                    adapter.hideLoading(); // Hide loading footer
+                    isLoading = false;
+                    showError("Failed to load more results: " + error);
+                });
+            }
+        });
+    }
+    private void processResults(JSONArray results, boolean isFirstPage) {
+        try {
+            List<Detection> detections = new ArrayList<>();
+
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject resultObj = results.getJSONObject(i);
+                if (resultObj.has("detections")) {
+                    JSONArray detectionsArray = new JSONArray(resultObj.getString("detections"));
+                    String timestamp = resultObj.optString("timestamp", "Unknown time");
+                    String imageUrl = resultObj.optString("result_image_url", "");
+
+                    if (!imageUrl.isEmpty()) {
+                        resultImageMap.put(timestamp, imageUrl);
+                    }
+
+                    if (isFirstPage && i == 0) {
+                        loadDetectionImage(imageUrl);
+                    }
+
+                    for (int j = 0; j < detectionsArray.length(); j++) {
+                        JSONObject detection = detectionsArray.getJSONObject(j);
+                        String className = detection.optString("class_name", "Unknown");
+                        double confidence = detection.optDouble("confidence", 0.0);
+                        detections.add(new Detection(className, confidence, timestamp));
+                    }
+                }
+            }
+
+            if (isFirstPage) {
+                adapter.setDetections(detections);
+            } else {
+                adapter.addDetections(detections);
+            }
+
+            isLastPage = results.length() < PAGE_SIZE;
+            if (!isLastPage) {
+                currentPage++;
+            }
+
+            if (isFirstPage && detections.isEmpty()) {
+                showEmptyState("No detection results found", true);
+            } else {
+                showEmptyState("", false);
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing results: " + e.getMessage());
+            showError("Error processing results: " + e.getMessage());
         }
     }
 
     private void loadDetectionImage(String imageUrl) {
         try {
             Log.d(TAG, "Loading image from URL: " + imageUrl);
-            String fullUrl = ApiService.SERVER_URL + imageUrl;
-            Log.d(TAG, "Full URL: " + fullUrl);
+            currentImageUrl = imageUrl;
 
-            // Show loading animation for the image
+            GlideUrl glideUrl = new GlideUrl(imageUrl, new LazyHeaders.Builder()
+                    .addHeader("apikey", ApiService.SUPABASE_KEY)
+                    .addHeader("Authorization", "Bearer " + ApiService.SUPABASE_KEY)
+                    .build());
+
             resultImageView.setVisibility(View.INVISIBLE);
 
-            // Use Glide to load the image from URL
             Glide.with(this)
-                    .load(fullUrl)
+                    .load(glideUrl)
                     .error(R.drawable.error_image)
-                    .listener(new com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable>() {
+                    .listener(new RequestListener<Drawable>() {
                         @Override
-                        public boolean onLoadFailed(com.bumptech.glide.load.engine.GlideException e, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                        public boolean onLoadFailed(@Nullable GlideException e, Object model,
+                                                    Target<Drawable> target, boolean isFirstResource) {
                             resultImageView.setVisibility(View.VISIBLE);
+                            showError("Failed to load image: " + (e != null ? e.getMessage() : "unknown error"));
                             return false;
                         }
 
                         @Override
-                        public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model, com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable> target, com.bumptech.glide.load.DataSource dataSource, boolean isFirstResource) {
+                        public boolean onResourceReady(@NonNull Drawable resource, Object model,
+                                                       Target<Drawable> target, DataSource dataSource,
+                                                       boolean isFirstResource) {
                             resultImageView.setVisibility(View.VISIBLE);
                             return false;
                         }
@@ -245,30 +361,20 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
             Log.d(TAG, "Processing single result: " + detectionResults);
             JSONObject resultData = new JSONObject(detectionResults);
 
-            // Get the image path from the result
-            String imagePath = resultData.optString("image_path", "");
+            String imagePath = resultData.optString("result_image_url", "");
             if (!imagePath.isEmpty()) {
                 loadDetectionImage(imagePath);
-
-                // Store image path for current scan
                 resultImageMap.put("Current Scan", imagePath);
             } else {
                 showError("No image path found in results");
             }
 
-            // Update detections list if available
             if (resultData.has("detections")) {
                 JSONArray detections = resultData.getJSONArray("detections");
                 updateDetectionsList(detections);
-
-                // Check if we got any detections
-                if (detections.length() == 0) {
-                    showEmptyState("No objects detected", false);
-                } else {
-                    showEmptyState("", false);
-                }
+                showEmptyState(detections.length() == 0 ? "No objects detected" : "", detections.length() == 0);
             } else {
-                showEmptyState("No detections found", false);
+                showEmptyState("No detections found", true);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error processing single result: " + e.getMessage(), e);
@@ -299,27 +405,13 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
 
     @Override
     public void onDetectionClick(Detection detection) {
-        // Handle click on a detection item
         String timestamp = detection.getLocation();
         String imageUrl = resultImageMap.get(timestamp);
 
         if (imageUrl != null && !imageUrl.isEmpty()) {
-            // Show loading animation
             showLoading(true);
-
-            // Load the image
             loadDetectionImage(imageUrl);
-
-            // Hide loading animation after a short delay
             loadingAnimation.postDelayed(() -> showLoading(false), 500);
-
-            // Option 2: Open in full-screen image viewer
-            // Uncomment to implement a separate image viewer activity
-            /*
-            Intent intent = new Intent(this, ImageViewerActivity.class);
-            intent.putExtra("IMAGE_URL", ApiService.SERVER_URL + imageUrl);
-            startActivity(intent);
-            */
         } else {
             showError("Image not available for this detection");
         }
@@ -339,8 +431,6 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
         if (show) {
             emptyStateView.setVisibility(View.VISIBLE);
             emptyStateAnimation.playAnimation();
-
-            // Set the message text if there's a TextView in the empty state layout
             TextView tvEmptyMessage = findViewById(R.id.tvEmptyMessage);
             if (tvEmptyMessage != null && !message.isEmpty()) {
                 tvEmptyMessage.setText(message);
@@ -368,10 +458,29 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
         try {
             Intent intent = new Intent(this, CameraActivity.class);
             startActivity(intent);
-            finish(); // Close this activity
+            finish();
         } catch (Exception e) {
             Log.e(TAG, "Error starting new scan: " + e.getMessage(), e);
             showError("Error starting new scan: " + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putString(KEY_CURRENT_IMAGE, currentImageUrl);
+        outState.putParcelableArrayList(KEY_DETECTIONS, new ArrayList<>(adapter.getDetections()));
+    }
+
+    private void restoreState(Bundle savedInstanceState) {
+        String savedImageUrl = savedInstanceState.getString(KEY_CURRENT_IMAGE);
+        ArrayList<Detection> savedDetections = savedInstanceState.getParcelableArrayList(KEY_DETECTIONS);
+
+        if (savedImageUrl != null) {
+            loadDetectionImage(savedImageUrl);
+        }
+        if (savedDetections != null) {
+            adapter.setDetections(savedDetections);
         }
     }
 
@@ -383,11 +492,14 @@ public class ResultsActivity extends AppCompatActivity implements DetectionAdapt
         }
         return super.onOptionsItemSelected(item);
     }
-    @Override
 
+    @Override
     protected void onDestroy() {
         try {
             super.onDestroy();
+            if (!isFinishing()) {
+                Glide.with(this).clear(resultImageView);
+            }
             if (loadingAnimation != null) {
                 loadingAnimation.cancelAnimation();
             }
