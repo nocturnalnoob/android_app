@@ -9,8 +9,6 @@ import androidx.annotation.NonNull;
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.airbnb.lottie.LottieAnimationView;
-import com.airbnb.lottie.LottieDrawable;
 import com.google.android.material.card.MaterialCardView;
 
 import java.util.ArrayList;
@@ -58,7 +56,6 @@ public class DetectionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
             Detection detection = detections.get(position);
             ((DetectionViewHolder) holder).bind(detection);
         }
-        // Loading ViewHolder doesn't need any binding as Lottie animation is auto-playing
     }
 
     @Override
@@ -101,34 +98,26 @@ public class DetectionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         private final TextView confidenceTextView;
         private final TextView locationTextView;
         private final MaterialCardView cardView;
-        private final LottieAnimationView detectionIconAnimation;
 
         DetectionViewHolder(View itemView) {
             super(itemView);
-            classNameTextView = itemView.findViewById(R.id.classNameTextView);
-            confidenceTextView = itemView.findViewById(R.id.confidenceTextView);
-            locationTextView = itemView.findViewById(R.id.locationTextView);
-            cardView = itemView.findViewById(R.id.detectionCardView);
-            detectionIconAnimation = itemView.findViewById(R.id.detectionIconAnimation);
+            classNameTextView = itemView.findViewById(R.id.tvDetectionClass);
+            confidenceTextView = itemView.findViewById(R.id.tvConfidence);
+            locationTextView = itemView.findViewById(R.id.tvLocation);
+            cardView = (MaterialCardView) itemView;
         }
 
         void bind(Detection detection) {
             try {
+                if (classNameTextView == null || confidenceTextView == null || locationTextView == null) {
+                    Log.e(TAG, "One or more TextViews are null");
+                    return;
+                }
+
                 classNameTextView.setText(detection.getClassName());
                 confidenceTextView.setText(String.format(Locale.US, "Confidence: %.2f%%",
                         detection.getConfidence() * 100));
                 locationTextView.setText(detection.getLocation());
-
-                // Set animation based on detection class
-
-                detectionIconAnimation.setAnimation(R.raw.detection_icon);
-
-
-                // Configure and start animation
-                detectionIconAnimation.setRepeatCount(LottieDrawable.INFINITE);
-                if (!detectionIconAnimation.isAnimating()) {
-                    detectionIconAnimation.playAnimation();
-                }
 
                 cardView.setOnClickListener(v -> {
                     if (clickListener != null) {
@@ -145,74 +134,29 @@ public class DetectionAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
                         .start();
 
             } catch (Exception e) {
-                Log.e(TAG, "Error binding detection: " + e.getMessage());
-            }
-        }
-
-        void stopAnimation() {
-            if (detectionIconAnimation != null && detectionIconAnimation.isAnimating()) {
-                detectionIconAnimation.cancelAnimation();
+                Log.e(TAG, "Error binding detection: " + e.getMessage(), e);
             }
         }
     }
 
     static class LoadingViewHolder extends RecyclerView.ViewHolder {
-        private final LottieAnimationView loadingAnimation;
-
         LoadingViewHolder(@NonNull View itemView) {
             super(itemView);
-            loadingAnimation = itemView.findViewById(R.id.loadingAnimation);
-
-            // Configure and start loading animation
-            if (loadingAnimation != null) {
-                loadingAnimation.setRepeatCount(LottieDrawable.INFINITE);
-                if (!loadingAnimation.isAnimating()) {
-                    loadingAnimation.playAnimation();
-                }
-            }
-        }
-
-        void stopAnimation() {
-            if (loadingAnimation != null && loadingAnimation.isAnimating()) {
-                loadingAnimation.cancelAnimation();
-            }
         }
     }
 
     @Override
     public void onViewAttachedToWindow(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewAttachedToWindow(holder);
-        if (holder instanceof DetectionViewHolder) {
-            DetectionViewHolder detectionHolder = (DetectionViewHolder) holder;
-            LottieAnimationView animation = detectionHolder.detectionIconAnimation;
-            if (animation != null && !animation.isAnimating()) {
-                animation.playAnimation();
-            }
-        } else if (holder instanceof LoadingViewHolder) {
-            LoadingViewHolder loadingHolder = (LoadingViewHolder) holder;
-            if (loadingHolder.loadingAnimation != null && !loadingHolder.loadingAnimation.isAnimating()) {
-                loadingHolder.loadingAnimation.playAnimation();
-            }
-        }
     }
 
     @Override
     public void onViewDetachedFromWindow(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewDetachedFromWindow(holder);
-        if (holder instanceof DetectionViewHolder) {
-            ((DetectionViewHolder) holder).stopAnimation();
-        } else if (holder instanceof LoadingViewHolder) {
-            ((LoadingViewHolder) holder).stopAnimation();
-        }
     }
 
     @Override
     public void onViewRecycled(@NonNull RecyclerView.ViewHolder holder) {
         super.onViewRecycled(holder);
-        if (holder instanceof DetectionViewHolder) {
-            ((DetectionViewHolder) holder).stopAnimation();
-        } else if (holder instanceof LoadingViewHolder) {
-            ((LoadingViewHolder) holder).stopAnimation();
-        }
     }
 }
