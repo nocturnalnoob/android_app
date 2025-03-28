@@ -7,11 +7,13 @@ public class Detection implements Parcelable {
     private String className;
     private double confidence;
     private String location;
+    private String imageUrl;
 
-    public Detection(String className, double confidence, String location) {
+    public Detection(String className, double confidence, String location, String imageUrl) {
         this.className = className;
         this.confidence = confidence;
         this.location = location;
+        this.imageUrl = imageUrl;
     }
 
     // Parcelable implementation
@@ -19,6 +21,7 @@ public class Detection implements Parcelable {
         className = in.readString();
         confidence = in.readDouble();
         location = in.readString();
+        imageUrl = in.readString();
     }
 
     public static final Creator<Detection> CREATOR = new Creator<Detection>() {
@@ -38,6 +41,7 @@ public class Detection implements Parcelable {
         dest.writeString(className);
         dest.writeDouble(confidence);
         dest.writeString(location);
+        dest.writeString(imageUrl);
     }
 
     @Override
@@ -56,5 +60,9 @@ public class Detection implements Parcelable {
 
     public String getLocation() {
         return location;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
     }
 }
