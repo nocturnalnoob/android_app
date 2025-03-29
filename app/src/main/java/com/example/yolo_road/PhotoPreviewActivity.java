@@ -1,14 +1,9 @@
 package com.example.yolo_road;
 
-import android.content.ContentResolver;
 import android.content.Intent;
-import android.database.Cursor;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.MediaStore;
 import android.util.Log;
 import android.view.MenuItem;
 import android.widget.ImageView;
@@ -19,9 +14,8 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
+import com.airbnb.lottie.LottieAnimationView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.DataSource;
 import com.bumptech.glide.load.engine.GlideException;
@@ -119,7 +113,7 @@ public class PhotoPreviewActivity extends AppCompatActivity {
             return;
         }
 
-        showProcessingDialog();
+        showLottieProcessingDialog();
 
         try {
             // Create temporary file from URI
@@ -188,9 +182,9 @@ public class PhotoPreviewActivity extends AppCompatActivity {
         }
     }
 
-    private void showProcessingDialog() {
+    private void showLottieProcessingDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setView(R.layout.dialog_processing);
+        builder.setView(R.layout.dialog_processing_lottie);
         builder.setCancelable(false);
         processingDialog = builder.create();
         processingDialog.show();
@@ -201,14 +195,6 @@ public class PhotoPreviewActivity extends AppCompatActivity {
             processingDialog.dismiss();
         }
     }
-
-//    private void navigateToResults(JSONObject response) {
-//        Intent intent = new Intent(this, ResultsActivity.class);
-//        intent.setData(imageUri);
-//        intent.putExtra("DETECTION_RESULTS", response.toString());
-//        startActivity(intent);
-//        finish();
-//    }
 
     private void discardImage() {
         if (imageUri != null) {

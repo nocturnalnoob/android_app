@@ -1,5 +1,6 @@
 package com.example.yolo_road;
 
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
@@ -58,6 +59,7 @@ public class SuccessMessageActivity extends AppCompatActivity {
         });
     }
 
+    @SuppressLint("MissingSuperCall")
     @Override
     public void onBackPressed() {
         // Go back to main activity
